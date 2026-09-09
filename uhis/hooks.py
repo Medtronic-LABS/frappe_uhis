@@ -1,5 +1,5 @@
 app_name = "uhis"
-app_title = "Uhis"
+app_title = "UHIS"
 app_publisher = "Medtronic Labs"
 app_description = "Client-facing umbrella app for UHIS-Next -- depends on spice_next_core, shukhee_integration, and leapwell_telemetry."
 app_email = "admin@medtroniclabs.org"
@@ -8,7 +8,9 @@ app_license = "gpl-3.0"
 # Apps
 # ------------------
 
-# required_apps = []
+# This app is the dependent, not the dependency -- it sits on top of the
+# three foundational apps rather than being required by them.
+required_apps = ["spice_next_core", "shukhee_integration", "leapwell_telemetry"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
