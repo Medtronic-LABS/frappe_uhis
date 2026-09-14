@@ -1,0 +1,165 @@
+# Builds the all-in-one production image (docker/allinone/Dockerfile — bench with
+# every app this deployment ships, plus MariaDB + Redis, all in one container; see
+# docker/allinone/ and frappe-uhis-next/docs/deployment/production.md for the full
+# architecture), pushes it to GHCR, and — only on main — redeploys the production
+# server over SSH.
+#
+# CI/CD control lives here, in uhis, rather than in spice_next_core: spice_next_core
+# is a shared core package reused across deployments, while uhis is the
+# client-specific app (required_apps = spice_next_core, shukhee_integration,
+# leapwell_telemetry — see uhis/hooks.py) that actually decides what goes live for
+# this deployment. spice_next_core's own docker-publish.yml has had its push
+# trigger disabled to avoid two workflows racing to deploy the same host.
+#
+# IMPORTANT one-time follow-up (outside this repo): the deploy host's
+# docker-compose.yml must be updated to pull ${REGISTRY}/${IMAGE_NAME} (this image)
+# for the `frappe-uhis` service instead of the old
+# ghcr.io/medtronic-labs/frappe_spice_next_core image.
+name: Build, publish, and deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      spice_next_core_ref:
+        description: "spice_next_core git ref to build against"
+        required: false
+        default: main
+      shukhee_integration_ref:
+        description: "shukhee_integration git ref to build against"
+        required: false
+        default: main
+      leapwell_telemetry_ref:
+        description: "leapwell_telemetry git ref to build against"
+        required: false
+        default: main
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  # GHCR requires a lowercase repository path — github.repository preserves the
+  # GitHub org's actual casing (Medtronic-LABS/...), so this is spelled out
+  # explicitly rather than derived, to avoid a push-time rejection.
+  IMAGE_NAME: medtronic-labs/frappe_uhis
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout uhis
+        uses: actions/checkout@v4
+        with:
+          path: apps/uhis
+
+      # spice_next_core, shukhee_integration, and leapwell_telemetry are sibling
+      # Medtronic-LABS repos, not subtrees of this one. They're checked out here
+      # (rather than via `bench get-app` inside the Dockerfile) so the exact
+      # commit under build is fixed at workflow time — the Dockerfile then COPYs
+      # them in, the same way spice_next_core's own Dockerfile already avoids
+      # baking a GitHub credential into an image layer for itself. Each ref
+      # defaults to that repo's main branch; override via workflow_dispatch to
+      # build against an in-progress branch of a dependency.
+      # MEDTRONIC_LABS_PAT must have contents:read on all three sibling repos.
+      - name: Checkout spice_next_core
+        uses: actions/checkout@v4
+        with:
+          repository: Medtronic-LABS/frappe_uhis_next_core
+          ref: ${{ inputs.spice_next_core_ref || 'main' }}
+          token: ${{ secrets.MEDTRONIC_LABS_PAT }}
+          path: apps/spice_next_core
+
+      - name: Checkout shukhee_integration
+        uses: actions/checkout@v4
+        with:
+          repository: Medtronic-LABS/leapwell_shukhee_integration
+          ref: ${{ inputs.shukhee_integration_ref || 'main' }}
+          token: ${{ secrets.MEDTRONIC_LABS_PAT }}
+          path: apps/shukhee_integration
+
+      - name: Checkout leapwell_telemetry
+        uses: actions/checkout@v4
+        with:
+          repository: Medtronic-LABS/frappe_leapwell_telemetry
+          ref: ${{ inputs.leapwell_telemetry_ref || 'main' }}
+          token: ${{ secrets.MEDTRONIC_LABS_PAT }}
+          path: apps/leapwell_telemetry
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+            type=semver,pattern={{version}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/uhis/docker/allinone/Dockerfile
+          build-args: |
+            FRAPPE_BRANCH=version-15
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # Only redeploy from a direct push to main — a version-tag push builds and
+    # publishes an immutable image but does not also trigger a redeploy of what a
+    # preceding push to main already put live.
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy to production via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            set -eu
+            cd /home/ubuntu/frappe_uhis_
+            docker compose -f docker-compose.yml pull frappe-uhis
+            docker compose -f docker-compose.yml up -d frappe-uhis
+            echo "Waiting for application to start..."
+            sleep 30
+
+            # Hits uhis-next's OWN proxy directly on the deploy host (port 8081,
+            # published by docker-compose.prod.yml) — NOT through the legacy
+            # platform's shared gateway, so no /system-config prefix here.
+            # Fail the workflow loudly if the new container isn't healthy.
+            # No automated rollback (out of scope for this pass).
+            for i in $(seq 1 20); do
+              if curl -fsS -H "Host: lf.localhost" "http://localhost:8000/api/method/ping" >/dev/null; then
+                echo "post-deploy healthcheck passed"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "post-deploy healthcheck failed" >&2
+            docker ps
+            exit 1
