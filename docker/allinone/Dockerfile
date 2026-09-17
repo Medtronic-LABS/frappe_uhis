@@ -56,7 +56,9 @@ WORKDIR /home/frappe/frappe-bench
 
 # frappe_theme is a public dependency of spice_next_core (its hooks.py declares
 # required_apps = ["frappe_theme"]) — fetched directly, no CI checkout needed.
-RUN bench get-app --branch development https://github.com/Suvaidyam/frappe_theme
+# Guarded on apps/frappe_theme so a rebuild that already has it on disk (e.g. a
+# cached layer restored from a build-context mount) doesn't re-clone it.
+RUN [ -d apps/frappe_theme ] || bench get-app --branch development https://github.com/Suvaidyam/frappe_theme
 
 # spice_next_core, shukhee_integration, leapwell_telemetry, and uhis itself are all
 # CI checkouts of THIS workflow run (see .github/workflows/docker-publish.yml), not
