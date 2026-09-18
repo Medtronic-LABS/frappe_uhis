@@ -75,7 +75,7 @@ jobs:
       - name: Checkout spice_next_core
         uses: actions/checkout@v4
         with:
-          repository: Medtronic-LABS/frappe_uhis_next_core
+          repository: Medtronic-LABS/frappe_spice_next_core
           ref: ${{ inputs.spice_next_core_ref || 'main' }}
           token: ${{ secrets.MEDTRONIC_LABS_PAT }}
           path: apps/spice_next_core
