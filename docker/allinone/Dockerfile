@@ -64,6 +64,14 @@ COPY --chown=frappe:frappe apps/shukhee_integration apps/shukhee_integration
 COPY --chown=frappe:frappe apps/leapwell_telemetry  apps/leapwell_telemetry
 COPY --chown=frappe:frappe apps/uhis                apps/uhis
 
+# `bench get-app` normally runs `yarn install --check-files` for any app with its
+# own package.json (see bench's own app.py install_app()) as part of registering
+# it into the bench -- COPYing pinned source in like this skips that step
+# entirely. Only frappe_theme has a package.json among these five (chart.js,
+# vue-chartjs, etc. for its dashboard/chart components) -- without this, `bench
+# build` below fails unable to resolve those imports.
+RUN yarn --cwd apps/frappe_theme install --check-files
+
 # frappe.get_all_apps() (what `bench install-app` and `bench build` both use to decide
 # which apps exist in this bench) reads sites/apps.txt — NOT the bench-root apps.txt.
 # sites/apps.txt is rewritten wholesale (not appended) because `bench init` leaves it
