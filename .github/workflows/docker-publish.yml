@@ -145,26 +145,66 @@ jobs:
     steps:
       - name: Deploy to production via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          # Forwarded into the remote script's environment via `envs:` below --
+          # NOT interpolated into the script string itself, so a secret value
+          # never appears as literal text in the script GitHub sends over SSH.
+          SITE_NAME: ${{ secrets.SITE_NAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_SCHEMA: ${{ secrets.DB_SCHEMA }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT }}
+          envs: SITE_NAME,ADMIN_PASSWORD,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,DB_SCHEMA
           script: |
             set -eu
-            cd /home/ubuntu/frappe_uhis_
+            DEPLOY_PATH="/home/ubuntu/frappe_uhis_"
+
+            # First deploy ever: the repo isn't on the host yet -- clone it.
+            # Every deploy after that: fast-forward to what main just published,
+            # discarding any local drift (this path is CI-owned, not hand-edited).
+            if [ -d "${DEPLOY_PATH}/.git" ]; then
+              cd "${DEPLOY_PATH}"
+              git fetch origin main
+              git reset --hard origin/main
+            else
+              mkdir -p "${DEPLOY_PATH}"
+              git clone --branch main https://github.com/Medtronic-LABS/frappe_uhis.git "${DEPLOY_PATH}"
+              cd "${DEPLOY_PATH}"
+            fi
+
+            # .env is gitignored and rewritten fresh from secrets on every deploy --
+            # it is CI-owned config, not a file anyone hand-edits on the host.
+            cat > .env <<ENV
+            SITE_NAME=${SITE_NAME}
+            ADMIN_PASSWORD=${ADMIN_PASSWORD}
+            DB_HOST=${DB_HOST}
+            DB_PORT=${DB_PORT}
+            DB_NAME=${DB_NAME}
+            DB_USER=${DB_USER}
+            DB_PASSWORD=${DB_PASSWORD}
+            DB_SCHEMA=${DB_SCHEMA}
+            ENV
+            chmod 600 .env
+
             docker compose -f docker-compose.yml pull frappe-uhis
             docker compose -f docker-compose.yml up -d frappe-uhis
             echo "Waiting for application to start..."
             sleep 30
 
-            # Hits uhis-next's OWN proxy directly on the deploy host (port 8081,
-            # published by docker-compose.prod.yml) — NOT through the legacy
-            # platform's shared gateway, so no /system-config prefix here.
-            # Fail the workflow loudly if the new container isn't healthy.
-            # No automated rollback (out of scope for this pass).
+            # Hits the frappe-uhis container's published port directly on the
+            # deploy host (docker-compose.yml maps 8000:8000) -- no reverse proxy
+            # in front of it. Fail the workflow loudly if the new container isn't
+            # healthy. No automated rollback (out of scope for this pass).
             for i in $(seq 1 20); do
-              if curl -fsS -H "Host: lf.localhost" "http://localhost:8000/api/method/ping" >/dev/null; then
+              if curl -fsS -H "Host: ${SITE_NAME}" "http://localhost:8000/api/method/ping" >/dev/null; then
                 echo "post-deploy healthcheck passed"
                 exit 0
               fi
