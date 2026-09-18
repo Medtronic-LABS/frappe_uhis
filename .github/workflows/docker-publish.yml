@@ -178,10 +178,13 @@ jobs:
               # Covers both "path doesn't exist yet" and "path exists from the old
               # hand-set-up (pre-CI-managed) deploy, but isn't a git checkout" --
               # git clone refuses to clone into a non-empty directory either way.
-              # Safe to clear: application data lives in the frappe-uhis-sites
-              # named volume, never in this path, and any docker-compose.yml/.env
-              # already here is about to be superseded/regenerated anyway.
-              rm -rf "${DEPLOY_PATH}"
+              # Move any existing (non-git) content aside rather than deleting it --
+              # application data lives in the frappe-uhis-sites named volume, never
+              # in this path, so nothing here SHOULD matter, but a rename costs
+              # nothing and means a surprise is recoverable instead of gone.
+              if [ -d "${DEPLOY_PATH}" ]; then
+                mv "${DEPLOY_PATH}" "${DEPLOY_PATH}.pre-ci-backup.$(date +%s)"
+              fi
               mkdir -p "${DEPLOY_PATH}"
               git clone --branch main https://github.com/Medtronic-LABS/frappe_uhis.git "${DEPLOY_PATH}"
               cd "${DEPLOY_PATH}"
