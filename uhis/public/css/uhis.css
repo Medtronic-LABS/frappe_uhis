@@ -1,0 +1,32 @@
+/* ── Full-width layout ───────────────────────────────────────────────────── */
+/* Expand all page containers to fill wide screens instead of Bootstrap caps */
+.layout-main,
+.page-body.container,
+.page-head .container,
+.page-head.container,
+.navbar .container,
+.section-body,
+.section-head {
+    max-width: 100% !important;
+}
+
+/* Consistent horizontal padding across navbar, page-head and form content */
+.navbar .container,
+.page-head .container,
+.page-head.container,
+.page-body.container {
+    padding-left: 24px !important;
+    padding-right: 24px !important;
+}
+
+/* Remove default section/form padding that was duplicated by invalid rules */
+.section-body,
+.section-head {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+.page-title {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
