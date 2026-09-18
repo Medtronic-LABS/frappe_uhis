@@ -206,12 +206,19 @@ jobs:
             # deploy host (docker-compose.yml maps 8000:8000) -- no reverse proxy
             # in front of it. Fail the workflow loudly if the new container isn't
             # healthy. No automated rollback (out of scope for this pass).
-            for i in $(seq 1 20); do
+            #
+            # 60 retries @ 10s (10 min) -- a *first-ever* deploy runs bench new-site
+            # + installs 5 apps + bench migrate from scratch inside site-setup.sh
+            # before this can ever succeed, which routinely takes several minutes;
+            # the previous 20×5s (100s) budget was tuned for a warm redeploy only
+            # and failed the workflow on every cold start regardless of whether
+            # anything was actually wrong.
+            for i in $(seq 1 60); do
               if curl -fsS -H "Host: ${SITE_NAME}" "http://localhost:8000/api/method/ping" >/dev/null; then
                 echo "post-deploy healthcheck passed"
                 exit 0
               fi
-              sleep 5
+              sleep 10
             done
             echo "post-deploy healthcheck failed" >&2
             docker ps
