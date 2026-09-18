@@ -166,28 +166,21 @@ jobs:
           script: |
             set -eu
             DEPLOY_PATH="/home/ubuntu/frappe_uhis_"
+            REPO_PATH="${DEPLOY_PATH}/repo"
 
-            # First deploy ever: the repo isn't on the host yet -- clone it.
-            # Every deploy after that: fast-forward to what main just published,
-            # discarding any local drift (this path is CI-owned, not hand-edited).
-            if [ -d "${DEPLOY_PATH}/.git" ]; then
-              cd "${DEPLOY_PATH}"
+            # The git checkout lives in a subdirectory, not DEPLOY_PATH itself --
+            # DEPLOY_PATH may already hold unrelated content from the old
+            # hand-set-up (pre-CI-managed) deploy, and git clone refuses to clone
+            # into a non-empty directory. Cloning into REPO_PATH instead means
+            # nothing already at DEPLOY_PATH is ever touched, moved, or deleted.
+            mkdir -p "${DEPLOY_PATH}"
+            if [ -d "${REPO_PATH}/.git" ]; then
+              cd "${REPO_PATH}"
               git fetch origin main
               git reset --hard origin/main
             else
-              # Covers both "path doesn't exist yet" and "path exists from the old
-              # hand-set-up (pre-CI-managed) deploy, but isn't a git checkout" --
-              # git clone refuses to clone into a non-empty directory either way.
-              # Move any existing (non-git) content aside rather than deleting it --
-              # application data lives in the frappe-uhis-sites named volume, never
-              # in this path, so nothing here SHOULD matter, but a rename costs
-              # nothing and means a surprise is recoverable instead of gone.
-              if [ -d "${DEPLOY_PATH}" ]; then
-                mv "${DEPLOY_PATH}" "${DEPLOY_PATH}.pre-ci-backup.$(date +%s)"
-              fi
-              mkdir -p "${DEPLOY_PATH}"
-              git clone --branch main https://github.com/Medtronic-LABS/frappe_uhis.git "${DEPLOY_PATH}"
-              cd "${DEPLOY_PATH}"
+              git clone --branch main https://github.com/Medtronic-LABS/frappe_uhis.git "${REPO_PATH}"
+              cd "${REPO_PATH}"
             fi
 
             # .env is gitignored and rewritten fresh from secrets on every deploy --
