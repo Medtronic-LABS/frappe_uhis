@@ -62,9 +62,10 @@ jobs:
       # BEFORE uhis itself, so the Dockerfile can COPY every dependency in with the
       # exact commit fixed at workflow time — no `bench get-app` re-clone at build
       # time, no ref-drift between "what CI tested" and "what got baked into the
-      # image". frappe_theme is a public, non-Medtronic repo (Suvaidyam/frappe_theme)
-      # so it needs no token; the other three are private siblings and need
-      # MEDTRONIC_LABS_PAT (contents:read on all three).
+      # image". All four are public repos (frappe_theme always was; the three
+      # Medtronic-LABS siblings were made public since) — actions/checkout needs no
+      # token for any of them. uhis itself stays private; only its own checkout
+      # (below) runs under the workflow's own default GITHUB_TOKEN.
       - name: Checkout frappe_theme
         uses: actions/checkout@v4
         with:
@@ -75,9 +76,8 @@ jobs:
       - name: Checkout spice_next_core
         uses: actions/checkout@v4
         with:
-          repository: Medtronic-LABS/frappe_uhis_next_core
+          repository: Medtronic-LABS/frappe_spice_next_core
           ref: ${{ inputs.spice_next_core_ref || 'main' }}
-          token: ${{ secrets.MEDTRONIC_LABS_PAT }}
           path: apps/spice_next_core
 
       - name: Checkout shukhee_integration
@@ -85,7 +85,6 @@ jobs:
         with:
           repository: Medtronic-LABS/leapwell_shukhee_integration
           ref: ${{ inputs.shukhee_integration_ref || 'main' }}
-          token: ${{ secrets.MEDTRONIC_LABS_PAT }}
           path: apps/shukhee_integration
 
       - name: Checkout leapwell_telemetry
@@ -93,7 +92,6 @@ jobs:
         with:
           repository: Medtronic-LABS/frappe_leapwell_telemetry
           ref: ${{ inputs.leapwell_telemetry_ref || 'main' }}
-          token: ${{ secrets.MEDTRONIC_LABS_PAT }}
           path: apps/leapwell_telemetry
 
       # uhis itself is checked out last -- it's the dependent, not a dependency
