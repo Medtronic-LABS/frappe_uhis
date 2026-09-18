@@ -1,0 +1,36 @@
+# Production compose for the uhis all-in-one image (single container: bench +
+# Redis, supervised by entrypoint.sh/supervisord; Postgres is external -- see
+# docker/allinone/ and docs/superpowers/specs/2026-09-18-postgres-reuse-design.md).
+#
+# This is the file .github/workflows/docker-publish.yml's `deploy` job runs
+# against on the production host, via `docker compose -f docker-compose.yml pull
+# frappe-uhis` / `up -d frappe-uhis`. That job does not clone this repo onto the
+# host -- it assumes a copy of this file already exists there, alongside a real
+# `.env` (see .env.example). Keep the host's copy in sync with this one by hand;
+# nothing here re-pulls the repo automatically.
+services:
+  frappe-uhis:
+    image: ghcr.io/medtronic-labs/frappe_uhis:latest
+    container_name: frappe-uhis
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # 8000: backend (gunicorn) -- the deploy job's post-deploy healthcheck curls
+      # this directly on the host. 9000: websocket (socketio).
+      - "8000:8000"
+      - "9000:9000"
+    volumes:
+      # The only thing that persists across restarts/redeploys -- site config,
+      # DB credentials (site_config.json), and uploaded files. Everything else
+      # (app code, built JS/CSS) is baked into the image; a new image build is
+      # how code ships, not a volume.
+      - frappe-uhis-sites:/home/frappe/frappe-bench/sites
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "-H", "Host: ${SITE_NAME}", "http://localhost:8000/api/method/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  frappe-uhis-sites:
