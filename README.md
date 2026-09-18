@@ -12,6 +12,18 @@ bench get-app $URL_OF_THIS_REPO --branch version-16
 bench install-app uhis
 ```
 
+### Deployment
+
+uhis is the sole owner of the production image, CI/CD pipeline, and deployment
+target for this stack — see `.github/workflows/docker-publish.yml` and
+`docker/allinone/` for the build. `docker-compose.yml` (root of this repo) is
+the compose file the deploy job runs on the production host; copy `.env.example`
+to `.env` there and fill in the real `SITE_NAME`/`ADMIN_PASSWORD`/`DB_*` values
+(Postgres is an existing, external database/schema — see
+`docs/superpowers/specs/2026-09-18-postgres-reuse-design.md`). The deploy job
+does not clone this repo onto the host; keep the host's copy of
+`docker-compose.yml` in sync with this one by hand.
+
 ### Contributing
 
 This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
