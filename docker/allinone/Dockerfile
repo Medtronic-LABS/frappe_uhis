@@ -4,12 +4,12 @@
 # .github/workflows/docker-publish.yml on every merge to main / version tag.
 #
 # uhis is the client-specific app (required_apps = spice_next_core,
-# shukhee_integration, leapwell_telemetry — see uhis/hooks.py) that assembles
-# everything this deployment actually ships, which is why the production image
-# and its CI/CD pipeline live here rather than in spice_next_core (a shared core
-# package reused across deployments). Modeled directly on spice_next_core's own
-# docker/allinone/ image — see frappe-uhis-next/docs/deployment/production.md for
-# the full architecture.
+# shukhee_integration, leapwell_telemetry — see uhis/hooks.py; spice_next_core in
+# turn requires frappe_theme) that assembles everything this deployment actually
+# ships, which is why the production image and its CI/CD pipeline live here rather
+# than in spice_next_core (a shared core package reused across deployments).
+# Modeled directly on spice_next_core's own docker/allinone/ image — see
+# frappe-uhis-next/docs/deployment/production.md for the full architecture.
 FROM frappe/bench:latest
 
 # Defaults to root for the rest of the build (apt-get, chown) regardless of the base
@@ -54,19 +54,15 @@ RUN bench init --frappe-branch "${FRAPPE_BRANCH}" --python python3 \
 
 WORKDIR /home/frappe/frappe-bench
 
-# frappe_theme is a public dependency of spice_next_core (its hooks.py declares
-# required_apps = ["frappe_theme"]) — fetched directly, no CI checkout needed.
-# Guarded on apps/frappe_theme so a rebuild that already has it on disk (e.g. a
-# cached layer restored from a build-context mount) doesn't re-clone it.
-RUN [ -d apps/frappe_theme ] || bench get-app --branch development https://github.com/Suvaidyam/frappe_theme
-
-# spice_next_core, shukhee_integration, leapwell_telemetry, and uhis itself are all
-# CI checkouts of THIS workflow run (see .github/workflows/docker-publish.yml), not
-# re-clones from GitHub — the exact commits under test are already on disk, so this
-# avoids a build-time GitHub credential and any ref-drift between "what CI tested"
-# and "what got baked into the image". Copied in required_apps dependency order:
-# spice_next_core (needs frappe_theme) -> shukhee_integration / leapwell_telemetry
-# (need spice_next_core) -> uhis (needs all three).
+# frappe_theme, spice_next_core, shukhee_integration, leapwell_telemetry, and uhis
+# itself are all CI checkouts of THIS workflow run (see
+# .github/workflows/docker-publish.yml), not re-clones from GitHub -- the exact
+# commits under test are already on disk, so this avoids a build-time GitHub
+# credential and any ref-drift between "what CI tested" and "what got baked into
+# the image". Copied in required_apps dependency order: frappe_theme -> spice_next_core
+# (needs frappe_theme) -> shukhee_integration / leapwell_telemetry (need
+# spice_next_core) -> uhis (needs all three).
+COPY --chown=frappe:frappe apps/frappe_theme        apps/frappe_theme
 COPY --chown=frappe:frappe apps/spice_next_core     apps/spice_next_core
 COPY --chown=frappe:frappe apps/shukhee_integration apps/shukhee_integration
 COPY --chown=frappe:frappe apps/leapwell_telemetry  apps/leapwell_telemetry
@@ -80,6 +76,7 @@ COPY --chown=frappe:frappe apps/uhis                apps/uhis
 # installed app at all (see spice_next_core's Dockerfile for the exact failure this
 # avoids). Order matches required_apps dependency order above.
 RUN ./env/bin/pip install --no-cache-dir \
+		-e ./apps/frappe_theme \
 		-e ./apps/spice_next_core \
 		-e ./apps/shukhee_integration \
 		-e ./apps/leapwell_telemetry \
