@@ -175,6 +175,13 @@ jobs:
               git fetch origin main
               git reset --hard origin/main
             else
+              # Covers both "path doesn't exist yet" and "path exists from the old
+              # hand-set-up (pre-CI-managed) deploy, but isn't a git checkout" --
+              # git clone refuses to clone into a non-empty directory either way.
+              # Safe to clear: application data lives in the frappe-uhis-sites
+              # named volume, never in this path, and any docker-compose.yml/.env
+              # already here is about to be superseded/regenerated anyway.
+              rm -rf "${DEPLOY_PATH}"
               mkdir -p "${DEPLOY_PATH}"
               git clone --branch main https://github.com/Medtronic-LABS/frappe_uhis.git "${DEPLOY_PATH}"
               cd "${DEPLOY_PATH}"
