@@ -17,6 +17,18 @@ set -eu
 : "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}"
 DB_PORT="${DB_PORT:-5432}"
 
+# bench new-site's own bootstrap-SQL import (DbManager.restore_database) shells
+# out directly to `psql 'postgresql://user:pass@host:port/db'` with no schema in
+# the connection string at all -- it never runs the `SET search_path` that
+# Frappe's own ORM connection does for every other query. Without this, that
+# import silently creates all of Frappe's base tables in `public` instead of
+# DB_SCHEMA, and bench then reports "Table 'tabDefaultValue' missing" because it
+# correctly looked for it in DB_SCHEMA. PGOPTIONS is honored by libpq/psql as
+# the default search_path for any new connection made under this environment,
+# including that raw subprocess -- confirmed nothing in frappe's own code sets
+# this, so there's no conflict with its explicit SET search_path calls.
+export PGOPTIONS="-c search_path=${DB_SCHEMA}"
+
 cd /home/frappe/frappe-bench
 MARKER="sites/.site_setup_complete"
 rm -f "${MARKER}"
