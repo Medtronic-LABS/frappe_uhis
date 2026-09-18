@@ -162,6 +162,12 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT }}
+          # appleboy/ssh-action's own default command_timeout (~10m) is shorter
+          # than this script's own worst-case budget (30s + 60x10s healthcheck
+          # loop = 630s) -- it force-killed the SSH session mid-loop before the
+          # script's own failure path (echo + docker ps) could ever run, hiding
+          # the actual diagnostic output. Must stay comfortably above 630s.
+          command_timeout: 20m
           envs: SITE_NAME,ADMIN_PASSWORD,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,DB_SCHEMA
           script: |
             set -eu
