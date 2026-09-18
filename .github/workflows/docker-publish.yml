@@ -197,6 +197,16 @@ jobs:
             ENV
             chmod 600 .env
 
+            # A container named frappe-uhis from a PREVIOUS project directory
+            # (e.g. before REPO_PATH became a subdirectory of DEPLOY_PATH) isn't
+            # recognized as "owned" by a compose run from this directory --
+            # `docker compose up -d` only replaces containers it created itself.
+            # container_name is fixed, so Docker's own name-uniqueness check
+            # would otherwise reject creating the new one outright. Force-remove
+            # any stale container holding that name first; a no-op once this
+            # project directory is the one consistently managing it.
+            docker rm -f frappe-uhis >/dev/null 2>&1 || true
+
             docker compose -f docker-compose.yml pull frappe-uhis
             docker compose -f docker-compose.yml up -d frappe-uhis
             echo "Waiting for application to start..."
