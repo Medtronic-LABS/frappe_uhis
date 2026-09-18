@@ -4,10 +4,9 @@
 #
 # This is the file .github/workflows/docker-publish.yml's `deploy` job runs
 # against on the production host, via `docker compose -f docker-compose.yml pull
-# frappe-uhis` / `up -d frappe-uhis`. That job does not clone this repo onto the
-# host -- it assumes a copy of this file already exists there, alongside a real
-# `.env` (see .env.example). Keep the host's copy in sync with this one by hand;
-# nothing here re-pulls the repo automatically.
+# frappe-uhis` / `up -d frappe-uhis` -- cloned/fast-forwarded there by that same
+# job on every deploy (into DEPLOY_PATH/repo), so this no longer needs manual
+# syncing onto the host by hand.
 services:
   frappe-uhis:
     image: ghcr.io/medtronic-labs/frappe_uhis:latest
@@ -25,12 +24,26 @@ services:
       # (app code, built JS/CSS) is baked into the image; a new image build is
       # how code ships, not a volume.
       - frappe-uhis-sites:/home/frappe/frappe-bench/sites
+    networks:
+      # The existing Postgres database/schema (DB_HOST) this image connects to
+      # (see the Postgres-reuse spec) lives in a container on this network, not
+      # this compose project's own -- e.g. DB_HOST=scribe-postgres only resolves
+      # if frappe-uhis shares its network. No other network is needed: nothing
+      # else in this compose project exists to talk to on a "default" network,
+      # and outbound internet (GHCR pulls, external API calls) works the same on
+      # any bridge network.
+      - scribe-net
     healthcheck:
       test: ["CMD", "curl", "-sf", "-H", "Host: ${SITE_NAME}", "http://localhost:8000/api/method/ping"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 60s
+
+networks:
+  scribe-net:
+    external: true
+    name: leapfrog_scribe-net
 
 volumes:
   frappe-uhis-sites:
