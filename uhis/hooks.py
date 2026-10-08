@@ -76,6 +76,11 @@ app_include_js = "/assets/uhis/js/breadcrumb_override.js"
 # application home page (will override Website Settings)
 # home_page = "login"
 
+# Overrides frappe.boot.home_page for every logged-in user, so a bare "/desk" or "/"
+# visit lands on the real Workspace view instead of the legacy Desktop icon-grid
+# fallback -- see uhis.boot.set_home_page_to_workspaces for why that fallback fires.
+extend_bootinfo = ["uhis.boot.set_home_page_to_workspaces"]
+
 # website user home page (by Role)
 # role_home_page = {
 # 	"Role": "home_page"
