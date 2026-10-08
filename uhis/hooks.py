@@ -13,15 +13,20 @@ app_license = "gpl-3.0"
 required_apps = ["spice_next_core", "shukhee_integration", "leapwell_telemetry"]
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "uhis",
-# 		"logo": "/assets/uhis/logo.png",
-# 		"title": "Uhis",
-# 		"route": "/uhis",
-# 		"has_permission": "uhis.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": app_name,
+		"logo": "/assets/uhis/images/leapwell-icon.svg",
+		"title": app_title,
+		"route": "/app/uhis-clinical",
+		"has_permission": "frappe.permissions.check_app_permission",
+	}
+]
+
+# Desk/login page logo — see frappe.core.doctype.navbar_settings.get_app_logo's
+# fallback chain (Website Settings.app_logo -> Navbar Settings.app_logo -> this
+# hook); neither DB field is set on this site, so this hook is authoritative.
+app_logo_url = "/assets/uhis/images/leapwell-icon.svg"
 
 # Includes in <head>
 # ------------------
@@ -257,4 +262,3 @@ app_include_js = "/assets/uhis/js/breadcrumb_override.js"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-
