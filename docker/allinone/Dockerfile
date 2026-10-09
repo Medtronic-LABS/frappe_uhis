@@ -24,7 +24,7 @@ FROM frappe/bench:latest
 # `mysql`-style system user needed now that Postgres is external).
 USER root
 
-ARG FRAPPE_BRANCH=version-16
+ARG FRAPPE_BRANCH=v16.51.0
 ENV PATH="/home/frappe/.local/bin:${PATH}"
 
 RUN apt-get update \

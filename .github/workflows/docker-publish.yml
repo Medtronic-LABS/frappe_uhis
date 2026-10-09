@@ -128,7 +128,7 @@ jobs:
           context: .
           file: apps/uhis/docker/allinone/Dockerfile
           build-args: |
-            FRAPPE_BRANCH=version-16
+            FRAPPE_BRANCH=v16.51.0
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
