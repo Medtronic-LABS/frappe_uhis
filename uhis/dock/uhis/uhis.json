@@ -1,0 +1,21 @@
+[
+ {
+  "app": "uhis",
+  "docstatus": 0,
+  "doctype": "Dock",
+  "idx": 0,
+  "items": [
+   {
+    "added": 0,
+    "hidden": 1,
+    "icon": null,
+    "link_to": "UHIS Clinical",
+    "link_type": "Workspace",
+    "title": "UHIS"
+   }
+  ],
+  "name": "uhis",
+  "standard": 1,
+  "user": ""
+ }
+]
