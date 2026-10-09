@@ -1,42 +1,55 @@
-# Builds the all-in-one production image (docker/allinone/Dockerfile — bench with
-# every app this deployment ships, plus MariaDB + Redis, all in one container; see
-# docker/allinone/ and frappe-uhis-next/docs/deployment/production.md for the full
-# architecture), pushes it to GHCR, and — only on main — redeploys the production
-# server over SSH.
+name: Frappe UHIS CI and GHCR Push
+
+# Builds the all-in-one image (docker/allinone/Dockerfile), pushes it to GHCR
+# and updates the image tag in deploy-scripts.
 #
-# CI/CD control lives here, in uhis, rather than in spice_next_core: spice_next_core
-# is a shared core package reused across deployments, while uhis is the
-# client-specific app (required_apps = spice_next_core, shukhee_integration,
-# leapwell_telemetry — see uhis/hooks.py) that actually decides what goes live for
-# this deployment. spice_next_core's own docker-publish.yml has had its push
-# trigger disabled to avoid two workflows racing to deploy the same host.
+# Image built:
+#   docker/allinone/Dockerfile -> frappe_uhis
 #
-# IMPORTANT one-time follow-up (outside this repo): the deploy host's
-# docker-compose.yml must be updated to pull ${REGISTRY}/${IMAGE_NAME} (this image)
-# for the `frappe-uhis` service instead of the old
-# ghcr.io/medtronic-labs/frappe_spice_next_core image.
-name: Build, publish, and deploy
+# Environments: dev, training, brac-prod (GitHub Settings -> Environments).
+#   - Push to develop builds "dev".
+#   - Push to training builds "training".
+#   - Push to leapwell-main builds "brac-prod".
+#   - Run manually (workflow_dispatch) to pick any of the three.
+#
+# Per-environment variables (set on each GitHub Environment):
+#   Required : DEPLOY_BRANCH   (deploy-scripts branch to update)
+#              MANIFEST_DIR    (folder in deploy-scripts that has the yaml files,
+#                               e.g. kubernetes-manifest/leapwell-dev)
+# Shared (repo level is fine): variable GHCR_ORG
+#                              secrets GHCR_USERNAME, GHCR_TOKEN,
+#                                      CI_BOT_USER, CI_BOT_TOKEN
 
 on:
   push:
-    branches: [main]
-    tags: ["v*.*.*"]
+    branches:
+      - develop
+      - training
+      - leapwell-main
   workflow_dispatch:
     inputs:
+      environment:
+        description: Environment to build and update
+        type: choice
+        options:
+          - dev
+          - training
+          - brac-prod
+        default: dev
       frappe_theme_ref:
-        description: "frappe_theme git ref to build against"
+        description: frappe_theme git ref to build against
         required: false
         default: claude/mcp-server
       spice_next_core_ref:
-        description: "spice_next_core git ref to build against"
+        description: spice_next_core git ref to build against
         required: false
         default: main
       shukhee_integration_ref:
-        description: "shukhee_integration git ref to build against"
+        description: shukhee_integration git ref to build against
         required: false
         default: main
       leapwell_telemetry_ref:
-        description: "leapwell_telemetry git ref to build against"
+        description: leapwell_telemetry git ref to build against
         required: false
         default: main
 
@@ -44,85 +57,96 @@ permissions:
   contents: read
   packages: write
 
-env:
-  REGISTRY: ghcr.io
-  # GHCR requires a lowercase repository path — github.repository preserves the
-  # GitHub org's actual casing (Medtronic-LABS/...), so this is spelled out
-  # explicitly rather than derived, to avoid a push-time rejection.
-  IMAGE_NAME: medtronic-labs/frappe_uhis
+concurrency:
+  group: frappe-uhis-${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'leapwell-main' && 'brac-prod') || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
+    environment: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'leapwell-main' && 'brac-prod') || github.ref_name }}
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: frappe_uhis
+      GHCR_IMAGE: ghcr.io/${{ vars.GHCR_ORG }}/frappe_uhis
+      ENV_NAME: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'leapwell-main' && 'brac-prod') || github.ref_name }}
+      DEPLOY_REPO: bitbucket.org/MDTLabs/deploy-scripts.git
+      DEPLOY_BRANCH: ${{ vars.DEPLOY_BRANCH }}
+      MANIFEST_DIR: ${{ vars.MANIFEST_DIR }}
+
     steps:
-      # Parent apps (uhis's required_apps chain, per uhis/hooks.py: frappe_theme ->
-      # spice_next_core -> shukhee_integration / leapwell_telemetry) are checked out
-      # BEFORE uhis itself, so the Dockerfile can COPY every dependency in with the
-      # exact commit fixed at workflow time — no `bench get-app` re-clone at build
-      # time, no ref-drift between "what CI tested" and "what got baked into the
-      # image". All four are public repos (frappe_theme always was; the three
-      # Medtronic-LABS siblings were made public since) — actions/checkout needs no
-      # token for any of them. uhis itself stays private; only its own checkout
-      # (below) runs under the workflow's own default GITHUB_TOKEN.
+      - name: Validate pipeline settings
+        env:
+          CI_BOT_USER: ${{ secrets.CI_BOT_USER }}
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_ORG: ${{ vars.GHCR_ORG }}
+        run: |
+          missing=""
+          for name in GHCR_ORG GHCR_USERNAME GHCR_TOKEN CI_BOT_USER CI_BOT_TOKEN \
+                      DEPLOY_BRANCH MANIFEST_DIR; do
+            if [ -z "${!name:-}" ]; then
+              missing="${missing} ${name}"
+            fi
+          done
+          if [ -n "${missing}" ]; then
+            echo "::error::Missing for environment '${ENV_NAME}':${missing}"
+            exit 1
+          fi
+          echo "Environment: ${ENV_NAME}"
+          echo "Deploy branch: ${DEPLOY_BRANCH}"
+          echo "Manifest dir: ${MANIFEST_DIR}"
+
+      # Parent apps are checked out first so the Dockerfile can COPY them in.
+      # uhis is checked out last.
       - name: Checkout frappe_theme
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: Suvaidyam/frappe_theme
           ref: ${{ inputs.frappe_theme_ref || 'claude/mcp-server' }}
           path: apps/frappe_theme
 
       - name: Checkout spice_next_core
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: Medtronic-LABS/frappe_spice_next_core
           ref: ${{ inputs.spice_next_core_ref || 'main' }}
           path: apps/spice_next_core
 
       - name: Checkout shukhee_integration
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: Medtronic-LABS/leapwell_shukhee_integration
           ref: ${{ inputs.shukhee_integration_ref || 'main' }}
           path: apps/shukhee_integration
 
       - name: Checkout leapwell_telemetry
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: Medtronic-LABS/frappe_leapwell_telemetry
           ref: ${{ inputs.leapwell_telemetry_ref || 'main' }}
           path: apps/leapwell_telemetry
 
-      # uhis itself is checked out last -- it's the dependent, not a dependency
-      # (required_apps = spice_next_core, shukhee_integration, leapwell_telemetry).
       - name: Checkout uhis
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: apps/uhis
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute image tags
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=short
-            type=semver,pattern={{version}}
+      - name: Set image tag
+        run: echo "IMAGE_TAG=${ENV_NAME}-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push
-        id: build
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push container image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -130,112 +154,64 @@ jobs:
           build-args: |
             FRAPPE_BRANCH=v16.51.0
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ env.GHCR_IMAGE }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=${{ env.IMAGE_NAME }}-${{ env.ENV_NAME }}
+          cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}-${{ env.ENV_NAME }}
+          provenance: false
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    # Only redeploy from a direct push to main — a version-tag push builds and
-    # publishes an immutable image but does not also trigger a redeploy of what a
-    # preceding push to main already put live.
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Deploy to production via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Update image tag in deploy-scripts
         env:
-          # Forwarded into the remote script's environment via `envs:` below --
-          # NOT interpolated into the script string itself, so a secret value
-          # never appears as literal text in the script GitHub sends over SSH.
-          SITE_NAME: ${{ secrets.SITE_NAME }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          DB_HOST: ${{ secrets.DB_HOST }}
-          DB_PORT: ${{ secrets.DB_PORT }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_SCHEMA: ${{ secrets.DB_SCHEMA }}
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_PORT }}
-          # appleboy/ssh-action's own default command_timeout (~10m) is shorter
-          # than this script's own worst-case budget (30s + 60x10s healthcheck
-          # loop = 630s) -- it force-killed the SSH session mid-loop before the
-          # script's own failure path (echo + docker ps) could ever run, hiding
-          # the actual diagnostic output. Must stay comfortably above 630s.
-          command_timeout: 20m
-          envs: SITE_NAME,ADMIN_PASSWORD,DB_HOST,DB_PORT,DB_NAME,DB_USER,DB_PASSWORD,DB_SCHEMA
-          script: |
-            set -eu
-            DEPLOY_PATH="/home/ubuntu/frappe_uhis_"
-            REPO_PATH="${DEPLOY_PATH}/repo"
+          CI_BOT_USER: ${{ secrets.CI_BOT_USER }}
+          CI_BOT_TOKEN: ${{ secrets.CI_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          REMOTE="https://${CI_BOT_USER}:${CI_BOT_TOKEN}@${DEPLOY_REPO}"
+          NEW_IMAGE="${GHCR_IMAGE}:${IMAGE_TAG}"
 
-            # The git checkout lives in a subdirectory, not DEPLOY_PATH itself --
-            # DEPLOY_PATH may already hold unrelated content from the old
-            # hand-set-up (pre-CI-managed) deploy, and git clone refuses to clone
-            # into a non-empty directory. Cloning into REPO_PATH instead means
-            # nothing already at DEPLOY_PATH is ever touched, moved, or deleted.
-            mkdir -p "${DEPLOY_PATH}"
-            if [ -d "${REPO_PATH}/.git" ]; then
-              cd "${REPO_PATH}"
-              git fetch origin main
-              git reset --hard origin/main
-            else
-              git clone --branch main https://github.com/Medtronic-LABS/frappe_uhis.git "${REPO_PATH}"
-              cd "${REPO_PATH}"
+          git clone --depth 1 -b "${DEPLOY_BRANCH}" "${REMOTE}" deploy-scripts
+          cd deploy-scripts
+
+          # Update the image line in one specific yaml file.
+          #   $1 = yaml file name, $2 = image name
+          # sed only edits the line that has "image: .../<image name>:<tag>",
+          # so other containers in the same file stay untouched.
+          update_image() {
+            file="${MANIFEST_DIR}/$1"
+            image="$2"
+
+            if [ ! -f "${file}" ]; then
+              echo "::error::Missing deploy manifest: ${file}"
+              exit 1
             fi
 
-            # .env is gitignored and rewritten fresh from secrets on every deploy --
-            # it is CI-owned config, not a file anyone hand-edits on the host.
-            cat > .env <<ENV
-            SITE_NAME=${SITE_NAME}
-            ADMIN_PASSWORD=${ADMIN_PASSWORD}
-            DB_HOST=${DB_HOST}
-            DB_PORT=${DB_PORT}
-            DB_NAME=${DB_NAME}
-            DB_USER=${DB_USER}
-            DB_PASSWORD=${DB_PASSWORD}
-            DB_SCHEMA=${DB_SCHEMA}
-            ENV
-            chmod 600 .env
+            sed -i -E "s|^([[:space:]]*image:[[:space:]]*)ghcr\.io/[^[:space:]]*/${image}:[^[:space:]]*|\1${NEW_IMAGE}|" "${file}"
 
-            # A container named frappe-uhis from a PREVIOUS project directory
-            # (e.g. before REPO_PATH became a subdirectory of DEPLOY_PATH) isn't
-            # recognized as "owned" by a compose run from this directory --
-            # `docker compose up -d` only replaces containers it created itself.
-            # container_name is fixed, so Docker's own name-uniqueness check
-            # would otherwise reject creating the new one outright. Force-remove
-            # any stale container holding that name first; a no-op once this
-            # project directory is the one consistently managing it.
-            docker rm -f frappe-uhis >/dev/null 2>&1 || true
+            if ! grep -qE "^[[:space:]]*image:[[:space:]]*${NEW_IMAGE}\$" "${file}"; then
+              echo "::error::No '${image}' image line found in ${file}"
+              exit 1
+            fi
+            git add "${file}"
+            echo "Updated ${file}"
+            grep -n "image: ghcr.io" "${file}"
+          }
 
-            docker compose -f docker-compose.yml pull frappe-uhis
-            docker compose -f docker-compose.yml up -d frappe-uhis
-            echo "Waiting for application to start..."
-            sleep 30
+          update_image frappe-uhis.yaml frappe_uhis
 
-            # Hits the frappe-uhis container's published port directly on the
-            # deploy host (docker-compose.yml maps 8000:8000) -- no reverse proxy
-            # in front of it. Fail the workflow loudly if the new container isn't
-            # healthy. No automated rollback (out of scope for this pass).
-            #
-            # 60 retries @ 10s (10 min) -- a *first-ever* deploy runs bench new-site
-            # + installs 5 apps + bench migrate from scratch inside site-setup.sh
-            # before this can ever succeed, which routinely takes several minutes;
-            # the previous 20×5s (100s) budget was tuned for a warm redeploy only
-            # and failed the workflow on every cold start regardless of whether
-            # anything was actually wrong.
-            for i in $(seq 1 60); do
-              if curl -fsS -H "Host: ${SITE_NAME}" "http://localhost:8000/api/method/ping" >/dev/null; then
-                echo "post-deploy healthcheck passed"
-                exit 0
-              fi
-              sleep 10
-            done
-            echo "post-deploy healthcheck failed" >&2
-            docker ps
-            exit 1
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@bitbucket.org"
+
+          if git diff --cached --quiet; then
+            echo "Image tag already up to date. Nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "ci(${ENV_NAME}): update ${IMAGE_NAME} image to ${IMAGE_TAG}"
+          for attempt in 1 2 3; do
+            if git push origin "${DEPLOY_BRANCH}"; then
+              echo "Updated ${MANIFEST_DIR}/frappe-uhis.yaml to ${NEW_IMAGE}"
+              exit 0
+            fi
+            git pull --rebase origin "${DEPLOY_BRANCH}"
+          done
+          echo "::error::Could not push the image tag update"
+          exit 1
