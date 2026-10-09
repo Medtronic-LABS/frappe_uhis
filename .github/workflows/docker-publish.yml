@@ -9,7 +9,7 @@ name: Frappe UHIS CI and GHCR Push
 # Environments: dev, training, brac-prod (GitHub Settings -> Environments).
 #   - Push to develop builds "dev".
 #   - Push to training builds "training".
-#   - Push to leapwell-main builds "brac-prod".
+#   - Push to main builds "brac-prod".
 #   - Run manually (workflow_dispatch) to pick any of the three.
 #
 # Per-environment variables (set on each GitHub Environment):
@@ -25,7 +25,7 @@ on:
     branches:
       - develop
       - training
-      - leapwell-main
+      - main
   workflow_dispatch:
     inputs:
       environment:
@@ -58,18 +58,18 @@ permissions:
   packages: write
 
 concurrency:
-  group: frappe-uhis-${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'leapwell-main' && 'brac-prod') || github.ref_name }}
+  group: frappe-uhis-${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'main' && 'brac-prod') || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'leapwell-main' && 'brac-prod') || github.ref_name }}
+    environment: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'main' && 'brac-prod') || github.ref_name }}
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: frappe_uhis
       GHCR_IMAGE: ghcr.io/${{ vars.GHCR_ORG }}/frappe_uhis
-      ENV_NAME: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'leapwell-main' && 'brac-prod') || github.ref_name }}
+      ENV_NAME: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'main' && 'brac-prod') || github.ref_name }}
       DEPLOY_REPO: bitbucket.org/MDTLabs/deploy-scripts.git
       DEPLOY_BRANCH: ${{ vars.DEPLOY_BRANCH }}
       MANIFEST_DIR: ${{ vars.MANIFEST_DIR }}
