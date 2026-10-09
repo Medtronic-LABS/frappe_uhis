@@ -12,16 +12,31 @@ app_license = "gpl-3.0"
 # three foundational apps rather than being required by them.
 required_apps = ["spice_next_core", "shukhee_integration", "leapwell_telemetry"]
 
-# Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "uhis",
-# 		"logo": "/assets/uhis/logo.png",
-# 		"title": "Uhis",
-# 		"route": "/uhis",
-# 		"has_permission": "uhis.api.permission.has_app_permission"
-# 	}
-# ]
+# Each item in the list will be shown as an app in the apps page.
+#
+# No "route" here on purpose: spice_next_core already owns /app/uhis-clinical
+# (its own add_to_apps_screen entry, since its module is the actual owner of
+# that workspace). Hardcoding the same literal route on uhis's entry made the
+# rail icon's landing route and the route's actual shell ownership disagree
+# (app_landing_route() returns app_route immediately, without ever consulting
+# the merged dock -- see frappe/public/js/frappe/ui/sidebar/sidebar.js), which
+# is what caused the click loop. Leaving "route" unset lets app_landing_route()
+# fall through to collect_dock_entries() -> the merged dock (Spice + Shukhee,
+# via mount_on) -> module_landing_route("Spice Next Core") -- the same
+# destination, reached through the shell spice_next_core actually owns.
+add_to_apps_screen = [
+	{
+		"name": app_name,
+		"logo": "/assets/uhis/images/leapwell-icon.svg",
+		"title": app_title,
+		"has_permission": "frappe.permissions.check_app_permission",
+	}
+]
+
+# Desk/login page logo — see frappe.core.doctype.navbar_settings.get_app_logo's
+# fallback chain (Website Settings.app_logo -> Navbar Settings.app_logo -> this
+# hook); neither DB field is set on this site, so this hook is authoritative.
+app_logo_url = "/assets/uhis/images/leapwell-icon.svg"
 
 # Includes in <head>
 # ------------------
@@ -60,6 +75,11 @@ app_include_js = "/assets/uhis/js/breadcrumb_override.js"
 
 # application home page (will override Website Settings)
 # home_page = "login"
+
+# Overrides frappe.boot.home_page for every logged-in user, so a bare "/desk" or "/"
+# visit lands on the real Workspace view instead of the legacy Desktop icon-grid
+# fallback -- see uhis.boot.set_home_page_to_workspaces for why that fallback fires.
+extend_bootinfo = ["uhis.boot.set_home_page_to_workspaces"]
 
 # website user home page (by Role)
 # role_home_page = {
@@ -257,4 +277,3 @@ app_include_js = "/assets/uhis/js/breadcrumb_override.js"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

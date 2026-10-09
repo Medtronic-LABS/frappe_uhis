@@ -4,3 +4,7 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+uhis.patches.v1_0.set_leapwell_favicon
+uhis.patches.v1_0.fix_stale_setup_wizard_home_page
+uhis.patches.v1_0.set_default_landing_workspace
+uhis.patches.v1_0.set_uhis_clinical_workspace_sequence
