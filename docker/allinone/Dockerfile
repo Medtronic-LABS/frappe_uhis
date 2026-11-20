@@ -1,5 +1,5 @@
 # All-in-one production image: bench (Frappe + frappe_theme + spice_next_core +
-# shukhee_integration + leapwell_telemetry + uhis) + Redis, all running as
+# shukhee_integration + leapwell_telemetry + spice_next_ai + uhis) + Redis, all running as
 # supervised processes in one container. Built and pushed to GHCR by
 # .github/workflows/docker-publish.yml on every merge to main / version tag.
 #
@@ -10,7 +10,7 @@
 # whoever runs this image, not baked in.
 #
 # uhis is the client-specific app (required_apps = spice_next_core,
-# shukhee_integration, leapwell_telemetry — see uhis/hooks.py; spice_next_core in
+# shukhee_integration, leapwell_telemetry, spice_next_ai — see uhis/hooks.py; spice_next_core in
 # turn requires frappe_theme) that assembles everything this deployment actually
 # ships, which is why the production image and its CI/CD pipeline live here rather
 # than in spice_next_core (a shared core package reused across deployments).
@@ -24,7 +24,7 @@ FROM frappe/bench:latest
 # `mysql`-style system user needed now that Postgres is external).
 USER root
 
-ARG FRAPPE_BRANCH=v16.51.0
+ARG FRAPPE_BRANCH=v16.60.2
 ENV PATH="/home/frappe/.local/bin:${PATH}"
 
 RUN apt-get update \
@@ -50,24 +50,25 @@ RUN bench init --frappe-branch "${FRAPPE_BRANCH}" --python python3 \
 
 WORKDIR /home/frappe/frappe-bench
 
-# frappe_theme, spice_next_core, shukhee_integration, leapwell_telemetry, and uhis
+# frappe_theme, spice_next_core, shukhee_integration, leapwell_telemetry, spice_next_ai, and uhis
 # itself are all CI checkouts of THIS workflow run (see
 # .github/workflows/docker-publish.yml), not re-clones from GitHub -- the exact
 # commits under test are already on disk, so this avoids a build-time GitHub
 # credential and any ref-drift between "what CI tested" and "what got baked into
 # the image". Copied in required_apps dependency order: frappe_theme -> spice_next_core
 # (needs frappe_theme) -> shukhee_integration / leapwell_telemetry (need
-# spice_next_core) -> uhis (needs all three).
+# spice_next_core) -> spice_next_ai (needs spice_next_core) -> uhis (needs all four).
 COPY --chown=frappe:frappe apps/frappe_theme        apps/frappe_theme
 COPY --chown=frappe:frappe apps/spice_next_core     apps/spice_next_core
 COPY --chown=frappe:frappe apps/shukhee_integration apps/shukhee_integration
 COPY --chown=frappe:frappe apps/leapwell_telemetry  apps/leapwell_telemetry
+COPY --chown=frappe:frappe apps/spice_next_ai      apps/spice_next_ai
 COPY --chown=frappe:frappe apps/uhis                apps/uhis
 
 # `bench get-app` normally runs `yarn install --check-files` for any app with its
 # own package.json (see bench's own app.py install_app()) as part of registering
 # it into the bench -- COPYing pinned source in like this skips that step
-# entirely. Only frappe_theme has a package.json among these five (chart.js,
+# entirely. Only frappe_theme has a package.json among these six (chart.js,
 # vue-chartjs, etc. for its dashboard/chart components) -- without this, `bench
 # build` below fails unable to resolve those imports.
 RUN yarn --cwd apps/frappe_theme install --check-files
@@ -84,8 +85,9 @@ RUN ./env/bin/pip install --no-cache-dir \
 		-e ./apps/spice_next_core \
 		-e ./apps/shukhee_integration \
 		-e ./apps/leapwell_telemetry \
+		-e ./apps/spice_next_ai \
 		-e ./apps/uhis \
-	&& printf 'frappe\nfrappe_theme\nspice_next_core\nshukhee_integration\nleapwell_telemetry\nuhis\n' > sites/apps.txt
+	&& printf 'frappe\nfrappe_theme\nspice_next_core\nshukhee_integration\nleapwell_telemetry\nspice_next_ai\nuhis\n' > sites/apps.txt
 
 # Build-time stub: just enough (Redis) for `bench build` below to run without a
 # real DB connection. db_type/db_host/db_port/db_schema are deployment-specific
