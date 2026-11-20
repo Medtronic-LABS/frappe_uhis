@@ -1,6 +1,6 @@
 ### Uhis
 
-Client-facing umbrella app for UHIS-Next -- depends on spice_next_core, shukhee_integration, and leapwell_telemetry.
+Client-facing umbrella app for UHIS-Next -- depends on spice_next_core, shukhee_integration, leapwell_telemetry, and spice_next_ai.
 
 ### Installation
 

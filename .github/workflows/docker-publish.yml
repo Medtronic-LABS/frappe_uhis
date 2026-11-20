@@ -52,6 +52,10 @@ on:
         description: leapwell_telemetry git ref to build against
         required: false
         default: main
+      spice_next_ai_ref:
+        description: spice_next_ai git ref to build against
+        required: false
+        default: main
 
 permissions:
   contents: read
@@ -128,6 +132,13 @@ jobs:
           ref: ${{ inputs.leapwell_telemetry_ref || 'main' }}
           path: apps/leapwell_telemetry
 
+      - name: Checkout spice_next_ai
+        uses: actions/checkout@v5
+        with:
+          repository: Medtronic-LABS/spice_next_ai
+          ref: ${{ inputs.spice_next_ai_ref || 'main' }}
+          path: apps/spice_next_ai
+
       - name: Checkout uhis
         uses: actions/checkout@v5
         with:
@@ -152,7 +163,7 @@ jobs:
           context: .
           file: apps/uhis/docker/allinone/Dockerfile
           build-args: |
-            FRAPPE_BRANCH=v16.51.0
+            FRAPPE_BRANCH=v16.60.2
           push: true
           tags: ${{ env.GHCR_IMAGE }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}-${{ env.ENV_NAME }}

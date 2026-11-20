@@ -3,7 +3,7 @@ name = "uhis"
 authors = [
     { name = "Medtronic Labs", email = "admin@medtroniclabs.org"}
 ]
-description = "Client-facing umbrella app for UHIS-Next -- depends on spice_next_core, shukhee_integration, and leapwell_telemetry."
+description = "Client-facing umbrella app for UHIS-Next -- depends on spice_next_core, shukhee_integration, leapwell_telemetry, and spice_next_ai."
 requires-python = ">=3.14"
 readme = "README.md"
 dynamic = ["version"]
