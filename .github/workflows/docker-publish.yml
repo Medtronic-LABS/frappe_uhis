@@ -9,7 +9,7 @@ name: Frappe UHIS CI and GHCR Push
 # Environments: dev, training, brac-prod (GitHub Settings -> Environments).
 #   - Push to develop builds "dev".
 #   - Push to training builds "training".
-#   - Push to leapwell-main builds "brac-prod".
+#   - Push to main builds "brac-prod".
 #   - Run manually (workflow_dispatch) to pick any of the three.
 #
 # Per-environment variables (set on each GitHub Environment):
@@ -25,7 +25,7 @@ on:
     branches:
       - develop
       - training
-      - leapwell-main
+      - main
   workflow_dispatch:
     inputs:
       environment:
@@ -52,24 +52,28 @@ on:
         description: leapwell_telemetry git ref to build against
         required: false
         default: main
+      spice_next_ai_ref:
+        description: spice_next_ai git ref to build against
+        required: false
+        default: main
 
 permissions:
   contents: read
   packages: write
 
 concurrency:
-  group: frappe-uhis-${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'leapwell-main' && 'brac-prod') || github.ref_name }}
+  group: frappe-uhis-${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'main' && 'brac-prod') || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'leapwell-main' && 'brac-prod') || github.ref_name }}
+    environment: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'main' && 'brac-prod') || github.ref_name }}
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: frappe_uhis
       GHCR_IMAGE: ghcr.io/${{ vars.GHCR_ORG }}/frappe_uhis
-      ENV_NAME: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'leapwell-main' && 'brac-prod') || github.ref_name }}
+      ENV_NAME: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'main' && 'brac-prod') || github.ref_name }}
       DEPLOY_REPO: bitbucket.org/MDTLabs/deploy-scripts.git
       DEPLOY_BRANCH: ${{ vars.DEPLOY_BRANCH }}
       MANIFEST_DIR: ${{ vars.MANIFEST_DIR }}
@@ -128,6 +132,13 @@ jobs:
           ref: ${{ inputs.leapwell_telemetry_ref || 'main' }}
           path: apps/leapwell_telemetry
 
+      - name: Checkout spice_next_ai
+        uses: actions/checkout@v5
+        with:
+          repository: Medtronic-LABS/spice_next_ai
+          ref: ${{ inputs.spice_next_ai_ref || 'main' }}
+          path: apps/spice_next_ai
+
       - name: Checkout uhis
         uses: actions/checkout@v5
         with:
@@ -152,7 +163,7 @@ jobs:
           context: .
           file: apps/uhis/docker/allinone/Dockerfile
           build-args: |
-            FRAPPE_BRANCH=v16.51.0
+            FRAPPE_BRANCH=v16.60.2
           push: true
           tags: ${{ env.GHCR_IMAGE }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}-${{ env.ENV_NAME }}
