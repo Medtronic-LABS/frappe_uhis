@@ -75,12 +75,12 @@ else
 fi
 
 # Installed in required_apps dependency order: frappe_theme -> spice_next_core ->
-# shukhee_integration / leapwell_telemetry -> uhis. Each app's own required_apps
+# shukhee_integration / leapwell_telemetry / spice_next_ai -> uhis. Each app's own required_apps
 # chain would install its dependencies automatically on a genuinely fresh site,
 # but this explicit, idempotent per-app check also covers a site that had an
 # earlier app installed BEFORE a dependency was declared, where required_apps
 # recursion never retroactively runs.
-for app in frappe_theme spice_next_core shukhee_integration leapwell_telemetry uhis; do
+for app in frappe_theme spice_next_core shukhee_integration leapwell_telemetry spice_next_ai uhis; do
 	if bench --site "${SITE_NAME}" list-apps | grep -qx "${app}"; then
 		echo "[site-setup] ${app} already installed on '${SITE_NAME}'"
 	else
