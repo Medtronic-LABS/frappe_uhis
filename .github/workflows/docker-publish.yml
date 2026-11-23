@@ -11,6 +11,10 @@ name: Frappe UHIS CI and GHCR Push
 #   - Push to training builds "training".
 #   - Push to main builds "main".
 #   - Run manually (workflow_dispatch) to pick any of the three.
+# App branches: spice_next_core, shukhee_integration, leapwell_telemetry and
+#   spice_next_ai are built from the branch matching the environment (dev ->
+#   develop, training -> training, main -> main); the *_ref inputs override it.
+#   frappe_theme always uses claude/mcp-server unless overridden.
 #
 # Per-environment variables (set on each GitHub Environment):
 #   Required : DEPLOY_BRANCH   (deploy-scripts branch to update)
@@ -44,21 +48,17 @@ on:
         required: false
         default: claude/mcp-server
       spice_next_core_ref:
-        description: spice_next_core git ref to build against
+        description: spice_next_core git ref to build against (default - branch matching the environment)
         required: false
-        default: main
       shukhee_integration_ref:
-        description: shukhee_integration git ref to build against
+        description: shukhee_integration git ref to build against (default - branch matching the environment)
         required: false
-        default: main
       leapwell_telemetry_ref:
-        description: leapwell_telemetry git ref to build against
+        description: leapwell_telemetry git ref to build against (default - branch matching the environment)
         required: false
-        default: main
       spice_next_ai_ref:
-        description: spice_next_ai git ref to build against
+        description: spice_next_ai git ref to build against (default - branch matching the environment)
         required: false
-        default: main
 
 permissions:
   contents: read
@@ -108,6 +108,18 @@ jobs:
           echo "Deploy branch: ${DEPLOY_BRANCH}"
           echo "Manifest dir: ${MANIFEST_DIR}"
 
+      # The Medtronic-LABS apps are built from the branch that matches the environment:
+      # dev -> develop, training -> training, main -> main. frappe_theme is a separate
+      # upstream repo without those branches, so it stays on its own ref.
+      - name: Resolve app branch
+        run: |
+          case "${ENV_NAME}" in
+            dev) APP_BRANCH=develop ;;
+            *)   APP_BRANCH="${ENV_NAME}" ;;
+          esac
+          echo "APP_BRANCH=${APP_BRANCH}" >> "$GITHUB_ENV"
+          echo "App branch: ${APP_BRANCH}"
+
       # Parent apps are checked out first so the Dockerfile can COPY them in.
       # uhis is checked out last.
       - name: Checkout frappe_theme
@@ -121,21 +133,21 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Medtronic-LABS/frappe_spice_next_core
-          ref: ${{ inputs.spice_next_core_ref || 'main' }}
+          ref: ${{ inputs.spice_next_core_ref || env.APP_BRANCH }}
           path: apps/spice_next_core
 
       - name: Checkout shukhee_integration
         uses: actions/checkout@v5
         with:
           repository: Medtronic-LABS/leapwell_shukhee_integration
-          ref: ${{ inputs.shukhee_integration_ref || 'main' }}
+          ref: ${{ inputs.shukhee_integration_ref || env.APP_BRANCH }}
           path: apps/shukhee_integration
 
       - name: Checkout leapwell_telemetry
         uses: actions/checkout@v5
         with:
           repository: Medtronic-LABS/frappe_leapwell_telemetry
-          ref: ${{ inputs.leapwell_telemetry_ref || 'main' }}
+          ref: ${{ inputs.leapwell_telemetry_ref || env.APP_BRANCH }}
           path: apps/leapwell_telemetry
 
       # spice_next_ai is a private repo; the default GITHUB_TOKEN only sees this one.
@@ -153,7 +165,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Medtronic-LABS/spice_next_ai
-          ref: ${{ inputs.spice_next_ai_ref || 'main' }}
+          ref: ${{ inputs.spice_next_ai_ref || env.APP_BRANCH }}
           path: apps/spice_next_ai
           token: ${{ steps.spice-app-token.outputs.token }}
           # Do not leave the token in apps/spice_next_ai/.git/config: the Dockerfile
