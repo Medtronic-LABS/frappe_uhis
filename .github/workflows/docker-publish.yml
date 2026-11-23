@@ -18,9 +18,10 @@ name: Frappe UHIS CI and GHCR Push
 #                               e.g. kubernetes-manifest/leapwell-dev)
 # Shared (repo level is fine): variable GHCR_ORG
 #                              secrets GHCR_USERNAME, GHCR_TOKEN,
-#                                      CI_BOT_USER, CI_BOT_TOKEN,
-#                                      SPICE_NEXT_AI_TOKEN (read access to the
-#                                      private spice_next_ai repo)
+#                                      CI_BOT_USER, CI_BOT_TOKEN
+# Per-environment secrets: SPICE_GITHUB_APP_ID, SPICE_GITHUB_APP_PRIVATE_KEY
+#                          (GitHub App installed on the private spice_next_ai
+#                          repo with read-only Contents; mints the checkout token)
 
 on:
   push:
@@ -88,11 +89,13 @@ jobs:
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GHCR_ORG: ${{ vars.GHCR_ORG }}
-          SPICE_NEXT_AI_TOKEN: ${{ secrets.SPICE_NEXT_AI_TOKEN }}
+          SPICE_GITHUB_APP_ID: ${{ secrets.SPICE_GITHUB_APP_ID }}
+          SPICE_GITHUB_APP_PRIVATE_KEY: ${{ secrets.SPICE_GITHUB_APP_PRIVATE_KEY }}
         run: |
           missing=""
           for name in GHCR_ORG GHCR_USERNAME GHCR_TOKEN CI_BOT_USER CI_BOT_TOKEN \
-                      SPICE_NEXT_AI_TOKEN DEPLOY_BRANCH MANIFEST_DIR; do
+                      SPICE_GITHUB_APP_ID SPICE_GITHUB_APP_PRIVATE_KEY \
+                      DEPLOY_BRANCH MANIFEST_DIR; do
             if [ -z "${!name:-}" ]; then
               missing="${missing} ${name}"
             fi
@@ -135,14 +138,24 @@ jobs:
           ref: ${{ inputs.leapwell_telemetry_ref || 'main' }}
           path: apps/leapwell_telemetry
 
+      # spice_next_ai is a private repo; the default GITHUB_TOKEN only sees this one.
+      # Mint a short-lived token from the GitHub App installed on it (read-only Contents).
+      - name: Create spice_next_ai access token
+        id: spice-app-token
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          app-id: ${{ secrets.SPICE_GITHUB_APP_ID }}
+          private-key: ${{ secrets.SPICE_GITHUB_APP_PRIVATE_KEY }}
+          owner: Medtronic-LABS
+          repositories: spice_next_ai
+
       - name: Checkout spice_next_ai
         uses: actions/checkout@v5
         with:
           repository: Medtronic-LABS/spice_next_ai
           ref: ${{ inputs.spice_next_ai_ref || 'main' }}
           path: apps/spice_next_ai
-          # spice_next_ai is a private repo; the default GITHUB_TOKEN only sees this one.
-          token: ${{ secrets.SPICE_NEXT_AI_TOKEN }}
+          token: ${{ steps.spice-app-token.outputs.token }}
           # Do not leave the token in apps/spice_next_ai/.git/config: the Dockerfile
           # COPYs this directory into the image.
           persist-credentials: false
