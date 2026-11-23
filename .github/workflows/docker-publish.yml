@@ -6,10 +6,10 @@ name: Frappe UHIS CI and GHCR Push
 # Image built:
 #   docker/allinone/Dockerfile -> frappe_uhis
 #
-# Environments: dev, training, brac-prod (GitHub Settings -> Environments).
+# Environments: dev, training, main (GitHub Settings -> Environments).
 #   - Push to develop builds "dev".
 #   - Push to training builds "training".
-#   - Push to main builds "brac-prod".
+#   - Push to main builds "main".
 #   - Run manually (workflow_dispatch) to pick any of the three.
 #
 # Per-environment variables (set on each GitHub Environment):
@@ -19,6 +19,9 @@ name: Frappe UHIS CI and GHCR Push
 # Shared (repo level is fine): variable GHCR_ORG
 #                              secrets GHCR_USERNAME, GHCR_TOKEN,
 #                                      CI_BOT_USER, CI_BOT_TOKEN
+# Per-environment secrets: SPICE_GITHUB_APP_ID, SPICE_GITHUB_APP_PRIVATE_KEY
+#                          (GitHub App installed on the private spice_next_ai
+#                          repo with read-only Contents; mints the checkout token)
 
 on:
   push:
@@ -34,7 +37,7 @@ on:
         options:
           - dev
           - training
-          - brac-prod
+          - main
         default: dev
       frappe_theme_ref:
         description: frappe_theme git ref to build against
@@ -62,18 +65,18 @@ permissions:
   packages: write
 
 concurrency:
-  group: frappe-uhis-${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'main' && 'brac-prod') || github.ref_name }}
+  group: frappe-uhis-${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'main' && 'brac-prod') || github.ref_name }}
+    environment: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || github.ref_name }}
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: frappe_uhis
       GHCR_IMAGE: ghcr.io/${{ vars.GHCR_ORG }}/frappe_uhis
-      ENV_NAME: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || (github.ref_name == 'main' && 'brac-prod') || github.ref_name }}
+      ENV_NAME: ${{ inputs.environment || (github.ref_name == 'develop' && 'dev') || github.ref_name }}
       DEPLOY_REPO: bitbucket.org/MDTLabs/deploy-scripts.git
       DEPLOY_BRANCH: ${{ vars.DEPLOY_BRANCH }}
       MANIFEST_DIR: ${{ vars.MANIFEST_DIR }}
@@ -86,9 +89,12 @@ jobs:
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GHCR_ORG: ${{ vars.GHCR_ORG }}
+          SPICE_GITHUB_APP_ID: ${{ secrets.SPICE_GITHUB_APP_ID }}
+          SPICE_GITHUB_APP_PRIVATE_KEY: ${{ secrets.SPICE_GITHUB_APP_PRIVATE_KEY }}
         run: |
           missing=""
           for name in GHCR_ORG GHCR_USERNAME GHCR_TOKEN CI_BOT_USER CI_BOT_TOKEN \
+                      SPICE_GITHUB_APP_ID SPICE_GITHUB_APP_PRIVATE_KEY \
                       DEPLOY_BRANCH MANIFEST_DIR; do
             if [ -z "${!name:-}" ]; then
               missing="${missing} ${name}"
@@ -132,12 +138,27 @@ jobs:
           ref: ${{ inputs.leapwell_telemetry_ref || 'main' }}
           path: apps/leapwell_telemetry
 
+      # spice_next_ai is a private repo; the default GITHUB_TOKEN only sees this one.
+      # Mint a short-lived token from the GitHub App installed on it (read-only Contents).
+      - name: Create spice_next_ai access token
+        id: spice-app-token
+        uses: actions/create-github-app-token@v3.3.0
+        with:
+          app-id: ${{ secrets.SPICE_GITHUB_APP_ID }}
+          private-key: ${{ secrets.SPICE_GITHUB_APP_PRIVATE_KEY }}
+          owner: Medtronic-LABS
+          repositories: spice_next_ai
+
       - name: Checkout spice_next_ai
         uses: actions/checkout@v5
         with:
           repository: Medtronic-LABS/spice_next_ai
           ref: ${{ inputs.spice_next_ai_ref || 'main' }}
           path: apps/spice_next_ai
+          token: ${{ steps.spice-app-token.outputs.token }}
+          # Do not leave the token in apps/spice_next_ai/.git/config: the Dockerfile
+          # COPYs this directory into the image.
+          persist-credentials: false
 
       - name: Checkout uhis
         uses: actions/checkout@v5
